@@ -1,53 +1,86 @@
-const express = require(`express`)
-const app = express()
-app.set(`view engine`, `ejs`);
-
-
-const session = require(`express-session`)
-const passport = require(`passport`)
-const LocalStrategy = require('passport-local').Strategy;
-const GoogleStrategy = require( `passport-google-oauth2` ).Strategy;
-// Get rest-pg file from the same folder in a const called db
-const db = require(`./rest-pg`)
-
-
-//Middleware
-app.use(session({
-    secret: `secret`,
-    resave: false ,
-    saveUninitialized: true ,
-}));
-
-app.use(passport.initialize()) // init passport on every route call
-app.use(passport.session())    //allow passport to use `express-session`
-
-
-//Get the GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET from Google Developer Console
+// ----------------- VARIABLES DE ENTORNO ----------------------------
 const dotenv = require(`dotenv`)
 dotenv.config()
-
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
+//------------------ FIN DE LAS VARIABLES DE ENTORNO -----------------
 
+
+//-------- NECESARIO PARA EL FUNCIONAMIENTO DE LA APLICACION --------
+const express = require(`express`)
+const session = require(`express-session`)
+const app = express()
+app.set(`view engine`, `ejs`);
+//------------------ FIN DE LO NECESARIO ----------------------------
+
+
+//------------------ MIDLEWARES -------------------------------------
+app.use(session({
+  secret: `secret`,
+  resave: false ,
+  saveUninitialized: true ,
+}));
+//------------------ FIN DE LOS MIDLEWARES ---------------------------
+
+
+// --------------- FUNCIONES DE AUTENTICACION ------------------------
 authUser = (request, accessToken, refreshToken, profile, done) => {
-    return done(null, profile);
+  return done(null, profile);
+}
+
+checkAuthenticated = (req, res, next) => {
+if (req.isAuthenticated()) { return next() }
+res.redirect(`/login`)
+}
+//------------------ FIN DE LAS FUNCIONES DE AUTENTICACION -----------
+
+
+//-------- NECESARIO PARA EL FUNCIONAMIENTO DE PASSPORT --------------
+const passport = require(`passport`)
+const LocalStrategy = require(`passport-local`).Strategy;
+const GoogleStrategy = require( `passport-google-oauth2` ).Strategy;
+app.use(passport.initialize())
+app.use(passport.session())
+
+// Serializar y deserializar usuarios
+passport.serializeUser( (user, done) => { 
+  console.log(`\n--------> Serialize User:`)
+  console.log(user)
+  done(null, user.id)
+} )
+
+passport.deserializeUser(async (id, done) => {
+try {
+  const query = `SELECT * FROM users WHERE id = $1`;
+  const values = [id];
+  const { rows } = await pool.query(query, values);
+
+  if (rows.length > 0) {
+    const user = rows[0];
+    done(null, user);
+  } else {
+    done(null, false, { message: `User not found` });
   }
+} catch (err) {
+  done(err);
+}
+});
 
-//Use `GoogleStrategy` as the Authentication Strategy
+// Estrategia de Google de Passport
 passport.use(new GoogleStrategy({
-    clientID:     GOOGLE_CLIENT_ID,
-    clientSecret: GOOGLE_CLIENT_SECRET,
-    callbackURL: `http://localhost:3000/auth/google/callback`,
-    passReqToCallback   : true
-  }, authUser));
+  clientID:     GOOGLE_CLIENT_ID,
+  clientSecret: GOOGLE_CLIENT_SECRET,
+  callbackURL: `http://localhost:3000/auth/google/callback`,
+  passReqToCallback   : true
+}, authUser));
 
-// Define la estrategia local de Passport
+// Estrategia local de Passport
 passport.use(new LocalStrategy(
   async (username, password, done) => {
     try {
-      const query = 'SELECT * FROM users WHERE username = $1';
+      const query = `SELECT * FROM users WHERE username = $1`;
       const values = [username];
-      const { rows } = await db.query(query, values);
+      const { rows } = await pool.query(query, values); 
 
       if (rows.length > 0) {
         const user = rows[0];
@@ -55,49 +88,98 @@ passport.use(new LocalStrategy(
         if (password === user.password) {
           return done(null, user);
         } else {
-          return done(null, false, { message: 'Incorrect username or password' });
+          return done(null, false, { message: `Incorrect username or password` });
         }
       } else {
-        return done(null, false, { message: 'User not found' });
+        return done(null, false, { message: `User not found` });
       }
     } catch (err) {
       return done(err);
     }
   }
 ));
-
-passport.serializeUser( (user, done) => { 
-    console.log(`\n--------> Serialize User:`)
-    console.log(user)
-     // The USER object is the `authenticated user` from the done() in authUser function.
-     // serializeUser() will attach this user to `req.session.passport.user.{user}`, so that it is tied to the session object for each session.  
-
-    done(null, user.id)
-} )
+//------------------ FIN DE LO NECESARIO ----------------------------
 
 
-passport.deserializeUser(async (id, done) => {
+//-------- NECESARIO PARA EL FUNCIONAMIENTO DE LA BASE DE DATOS ------
+const { Pool } = require(`pg`);
+const pool = new Pool({connectionString: 'postgres://root:root@postgres:5432/root'});
+//------------------ FIN DE LO NECESARIO ----------------------------
+
+
+// ----------------- SERVIDOR ----------------------------------------
+app.use(express.urlencoded({ extended: true }));
+app.listen(3000, () => console.log(`Server started on port 3000`))
+//------------------ FIN DEL SERVIDOR -------------------------------
+
+
+// ---------------- REGISTRO DE USUARIOS ----------------------------
+app.get(`/register`, (req, res) => {
+  res.render(`register.ejs`);
+});
+
+// Registro local
+app.post(`/register`, async (req, res) => {
+  const { username, password } = req.body;
   try {
-    const query = 'SELECT * FROM users WHERE id = $1';
-    const values = [id];
-    const { rows } = await db.query(query, values);
-
-    if (rows.length > 0) {
-      const user = rows[0];
-      done(null, user);
-    } else {
-      done(null, false, { message: 'User not found' });
-    }
+    const query = `INSERT INTO users (username, password) VALUES ($1, $2)`;
+    const values = [username, password];
+    await pool.query(query, values);
+    res.redirect(`/login`);
   } catch (err) {
-    done(err);
+    console.error(`Error al registrar el usuario`, err);
+    res.redirect(`/register`);
   }
 });
 
+// Registro de Google
+app.get(`/auth/google`,
+  passport.authenticate(`google`, { scope:
+      [ `email`, `profile` ] }
+));
+app.get(`/auth/google/callback`,
+    passport.authenticate( `google`, {
+        successRedirect: `/dashboard`,
+        failureRedirect: `/login`
+}));
+// ---------------- FIN DEL REGISTRO DE USUARIOS ---------------------
 
-//Start the NODE JS server
-app.listen(3000, () => console.log(`Server started on port 3000`))
+
+// ---------------- INICIO DE SESION --------------------------------
+app.get(`/login`, (req, res) => {
+    res.render(`login.ejs`)
+})
+
+// Ruta para procesar la solicitud de inicio de sesión local
+app.post(`/login`, passport.authenticate(`local`, {
+  successRedirect: `/dashboard`,
+  failureRedirect: `/login`,
+}));
+// ---------------- FIN DEL INICIO DE SESION -------------------------
 
 
+// ----------------- RUTAS PROTEGIDAS --------------------------------
+app.get(`/dashboard`, checkAuthenticated, (req, res) => {
+  res.render(`dashboard.ejs`, {name: req.user.displayName})
+})
+// ----------------- FIN DE LAS RUTAS PROTEGIDAS ---------------------
+
+
+// ----------------- CERRAR SESION -----------------------------------
+app.post(`/logout`, (req, res) => {
+  req.logout(function (err) {
+      if (err) {
+          console.log(err);
+      }
+      res.redirect(`/login`);
+      console.log(`-------> User Logged out`);
+  });
+});
+// ----------------- FIN DE CERRAR SESION -----------------------------
+
+
+// ----------------- OTROS --------------------------------------------
+/*
 //console.log() values of `req.session` and `req.user` so we can see what is happening during Google Authentication
 let count = 1
 showlogs = (req, res, next) => {
@@ -121,69 +203,5 @@ showlogs = (req, res, next) => {
 }
 
 app.use(showlogs)
-
-// Ruta para el formulario de registro local
-app.get('/register', (req, res) => {
-  res.render('register.ejs');
-});
-
-// Ruta para procesar la solicitud de registro local
-app.post('/register', async (req, res) => {
-  const { username, password } = req.body;
-  try {
-    const query = 'INSERT INTO users (username, password) VALUES ($1, $2)';
-    const values = [username, password];
-    await db.query(query, values);
-    res.redirect('/login');
-  } catch (err) {
-    console.error(err);
-    res.redirect('/register');
-  }
-});
-
-
-
-app.get(`/auth/google`,
-  passport.authenticate(`google`, { scope:
-      [ `email`, `profile` ] }
-));
-
-app.get(`/auth/google/callback`,
-    passport.authenticate( `google`, {
-        successRedirect: `/dashboard`,
-        failureRedirect: `/login`
-}));
-
-//Define the Login Route
-app.get(`/login`, (req, res) => {
-    res.render(`login.ejs`)
-})
-
-// Ruta para procesar la solicitud de inicio de sesión local
-app.post('/login', passport.authenticate('local', {
-  successRedirect: '/dashboard',
-  failureRedirect: '/login',
-}));
-
-
-//Use the req.isAuthenticated() function to check if user is Authenticated
-checkAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) { return next() }
-  res.redirect(`/login`)
-}
-
-//Define the Protected Route, by using the `checkAuthenticated` function defined above as middleware
-app.get(`/dashboard`, checkAuthenticated, (req, res) => {
-  res.render(`dashboard.ejs`, {name: req.user.displayName})
-})
-
-//Define the Logout
-app.post(`/logout`, (req, res) => {
-  req.logout(function (err) {
-      if (err) {
-          console.log(err);
-      }
-      res.redirect(`/login`);
-      console.log(`-------> User Logged out`);
-  });
-});
+*/
+// ----------------- FIN DE OTROS -------------------------------------

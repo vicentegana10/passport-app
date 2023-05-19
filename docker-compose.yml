@@ -16,10 +16,12 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - DATABASE_HOST=127.0.0.1
+      - DATABASE_HOST=postgres
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=root
       - POSTGRES_DB=root
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
   pgadmin:
     image: dpage/pgadmin4
