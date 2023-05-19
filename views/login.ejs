@@ -1,5 +1,21 @@
-<h1> Google Login </h1>
-  Click here to authenticate with Google
-<form action="/auth/google" method="GET">
-  <button type="submit"> GOOGLE BUTTON </button>
+<h1>Local Login</h1>
+
+<% if (typeof errorMessage !== 'undefined' && errorMessage) { %>
+  <div class="error-message">
+    <%= errorMessage %>
+  </div>
+<% } %>
+
+<form action="/login" method="POST">
+  <div>
+    <label for="username">Username:</label>
+    <input type="text" id="username" name="username" required>
+  </div>
+  <div>
+    <label for="password">Password:</label>
+    <input type="password" id="password" name="password" required>
+  </div>
+  <button type="submit">Login</button>
 </form>
+
+<a href="/auth/google">Login with Google</a>
