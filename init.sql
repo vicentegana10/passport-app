@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS users (
     id serial,
-    name text NOT NULL,
-    rut text NOT NULL,
-    pass text NOT NULL,
-    mail text NOT NULL,
+    name text,
+    rut text,
+    password text NOT NULL,
+    email text NOT NULL,
     sex char(1),
     role char(1),
     lang varchar(10) DEFAULT 'spanish',
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TYPE tipo_aprendizaje AS ENUM ('Reflexivo', 'Activo', 'Teorico', 'Pragmatico');
 ALTER TABLE users ADD COLUMN aprendizaje tipo_aprendizaje;
 
-INSERT INTO users (name, rut, pass, mail, sex, role, aprendizaje)
+INSERT INTO users (name, rut, password, email, sex, role, aprendizaje)
 VALUES
 ('Admin', 'N/A', md5('admin'), 'admin@admin', NULL, 'S', NULL),
 ('profesor', '16308816-9', md5('profesor'), 'profesor@test', 'M', 'P', 'Reflexivo'),

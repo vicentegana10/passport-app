@@ -45,21 +45,31 @@ app.use(passport.session())
 // Serializar y deserializar usuarios
 passport.serializeUser( (user, done) => { 
   console.log(`\n--------> Serialize User:`)
-  console.log(user)
-  done(null, user.id)
+  done(null, user)
 } )
 
-passport.deserializeUser(async (id, done) => {
+passport.deserializeUser(async (user, done) => {
 try {
-  const query = `SELECT * FROM users WHERE id = $1`;
-  const values = [id];
+  console.log(`\n--------> Deserialize User:`)
+  const query = `SELECT * FROM users WHERE email = $1`;
+  const values = [user.email];
   const { rows } = await pool.query(query, values);
+  console.log(`pase por aca 1.1`)
 
   if (rows.length > 0) {
     const user = rows[0];
     done(null, user);
   } else {
-    done(null, false, { message: `User not found` });
+    // Crear usuario con datos de Google
+    try {
+      const query = `INSERT INTO users (name, email, password) VALUES ($1, $2, $3)`;
+      const values = [user.displayName, user.email, '12345678'];
+      await pool.query(query, values);
+      done(null, user)
+    } catch (err) {
+      console.error(`Error al registrar el usuario`, err);
+      done(err);
+    }
   }
 } catch (err) {
   done(err);
@@ -76,24 +86,33 @@ passport.use(new GoogleStrategy({
 
 // Estrategia local de Passport
 passport.use(new LocalStrategy(
-  async (username, password, done) => {
+  {
+    usernameField: 'email', // Especifica que el campo de nombre de usuario es 'email'
+    passwordField: 'password', // Especifica que el campo de contraseña es 'password'
+  },
+  async (email, password, done) => {
     try {
-      const query = `SELECT * FROM users WHERE username = $1`;
-      const values = [username];
-      const { rows } = await pool.query(query, values); 
+      console.log(`\n--------> Local Strategy:`);
+      const query = `SELECT * FROM users WHERE email = $1`;
+      const values = [email];
+      const { rows } = await pool.query(query, values);
 
       if (rows.length > 0) {
         const user = rows[0];
-
         if (password === user.password) {
+          console.log(`Pase por aca 1`);
           return done(null, user);
         } else {
-          return done(null, false, { message: `Incorrect username or password` });
+          console.log(`Pase por aca 2`);
+          return done(null, false, { message: `Incorrect email or password` });
         }
       } else {
+        console.log(`Pase por aca 3`);
         return done(null, false, { message: `User not found` });
       }
     } catch (err) {
+      console.log(`Pase por aca 4`);
+      console.log(`\n--------> Error en Local Strategy: ${err}`);
       return done(err);
     }
   }
@@ -120,10 +139,10 @@ app.get(`/register`, (req, res) => {
 
 // Registro local
 app.post(`/register`, async (req, res) => {
-  const { username, password } = req.body;
+  const { email, password } = req.body;
   try {
-    const query = `INSERT INTO users (username, password) VALUES ($1, $2)`;
-    const values = [username, password];
+    const query = `INSERT INTO users (email, password) VALUES ($1, $2)`;
+    const values = [email, password];
     await pool.query(query, values);
     res.redirect(`/login`);
   } catch (err) {
@@ -131,6 +150,7 @@ app.post(`/register`, async (req, res) => {
     res.redirect(`/register`);
   }
 });
+
 
 // Registro de Google
 app.get(`/auth/google`,
@@ -155,12 +175,14 @@ app.post(`/login`, passport.authenticate(`local`, {
   successRedirect: `/dashboard`,
   failureRedirect: `/login`,
 }));
+
 // ---------------- FIN DEL INICIO DE SESION -------------------------
 
 
 // ----------------- RUTAS PROTEGIDAS --------------------------------
 app.get(`/dashboard`, checkAuthenticated, (req, res) => {
-  res.render(`dashboard.ejs`, {name: req.user.displayName})
+  console.log(`redirect dashboard ${req.user}`);
+  res.render(`dashboard.ejs`, {name: req.user.name})
 })
 // ----------------- FIN DE LAS RUTAS PROTEGIDAS ---------------------
 
